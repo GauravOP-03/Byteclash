@@ -1,20 +1,29 @@
 "use client";
 
-import { ReactNode } from "react";
+import { forwardRef } from "react";
+import { cn } from "./lib/utils";
 
-interface ButtonProps {
-  children: ReactNode;
-  className?: string;
-  appName: string;
+export interface ButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: "outline" | "default";
 }
 
-export const Button = ({ children, className, appName }: ButtonProps) => {
-  return (
-    <button
-      className={className}
-      onClick={() => alert(`Hello from your ${appName} app!`)}
-    >
-      {children}
-    </button>
-  );
+const variants: Record<NonNullable<ButtonProps["variant"]>, string> = {
+  outline: "ui-btn-outline",
+  default: "ui-btn",
 };
+
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant = "default", type = "button", ...props }, ref) => {
+    return (
+      <button
+        ref={ref}
+        className={cn(variants[variant], className)}
+        type={type}
+        {...props}
+      />
+    );
+  }
+);
+
+Button.displayName = "Button";
