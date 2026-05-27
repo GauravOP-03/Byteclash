@@ -14,9 +14,9 @@ export interface UsersTable {
 export interface UserAccounts {
   id: Generated<string>;
   user_id: Generated<string>;
-  hash_password: string;
-  provider: "google" | "email";
-  provider_user_id?: string;
+  hash_password?: string;
+  google_provider_id?: string;
+  github_provider_id?: string;
   update_at: Generated<Date>;
   created_at: Generated<Date>;
 }
