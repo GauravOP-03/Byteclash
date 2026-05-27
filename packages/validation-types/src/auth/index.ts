@@ -32,6 +32,13 @@ export const verifyOtpSchema = z.object({
 
 export type verifyOtpType = z.infer<typeof verifyOtpSchema>;
 
+export const resendOtpSchema = z.object({
+  email: z.email("please enter valid email"),
+  purpose: z.enum(purpose_option),
+});
+
+export type resendOtpType = z.infer<typeof resendOtpSchema>;
+
 export const loginSchema = z.object({
   email: z.email("Please enter a valid email"),
   password: z
@@ -40,5 +47,4 @@ export const loginSchema = z.object({
     .regex(/[A-Z]/, "Must contain at least one uppercase letter")
     .regex(/[0-9]/, "Must contain at least one number"),
 });
-
 export type loginSchemaType = z.infer<typeof loginSchema>;
