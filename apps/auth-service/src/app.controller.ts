@@ -28,9 +28,25 @@ export class AppController {
     return this.appService.validateOtp(credential);
   }
 
+  @MessagePattern('auth-resend-otp')
+  @UsePipes(new ZodRpcValidationPipe(validationTypes.resendOtpSchema))
+  async resendOtp(credential: validationTypes.resendOtpType) {
+    return this.appService.resendOtp(credential);
+  }
+
   @MessagePattern('auth-refresh-token')
-  async refresh(credential: { access_token: string }) {
+  async refresh(credential: string) {
     console.log(credential);
-    return this.appService.getAccessToken(credential.access_token);
+    return this.appService.getAccessToken(credential);
+  }
+
+  @MessagePattern('auth-google-login')
+  async googleLogin(token: { token: string }) {
+    return this.appService.googleLogin(token.token);
+  }
+
+  @MessagePattern('auth-github-login')
+  async githubLogin(token: string) {
+    return this.appService.githubLogin(token);
   }
 }

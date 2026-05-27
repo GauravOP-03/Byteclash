@@ -5,6 +5,7 @@ import { Kysely } from 'kysely';
 import { Database } from '@repo/database';
 import {
   loginSchemaType,
+  resendOtpType,
   signupBodyType,
   verifyOtpType,
 } from '@repo/validation-types';
@@ -13,20 +14,24 @@ import crypto from 'crypto';
 import { EmailService } from './email/email.service';
 import { v4 as uuidv4 } from 'uuid';
 import { throwRpcError } from './config/rpc-error.helper';
+import { OAuth2Client } from 'google-auth-library';
 
 @Injectable()
 export class AppService {
+  private googleClient: OAuth2Client;
   constructor(
     @Inject(DB_CONNECTION) private readonly db: Kysely<Database>,
     private readonly jwtService: JwtService,
     private readonly emailService: EmailService,
-  ) {}
+  ) {
+    this.googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+  }
 
   async login(data: loginSchemaType) {
     const { email, password } = data;
     const existingUser = await this.db
       .selectFrom('auth.users')
-      .select(['id', 'email', 'email_verified'])
+      .select(['id', 'email', 'email_verified', 'first_name', 'last_name'])
       .where('email', '=', email)
       .executeTakeFirst();
 
@@ -44,7 +49,7 @@ export class AppService {
       .where('user_id', '=', existingUser.id)
       .executeTakeFirst();
 
-    if (user?.provider != 'email') {
+    if (!user?.hash_password) {
       throwRpcError(
         'Email is registered through another login method',
         HttpStatus.CONFLICT, // This is the standard 409 error
@@ -56,7 +61,14 @@ export class AppService {
       throwRpcError('Incorrect Password', HttpStatus.UNAUTHORIZED);
     }
 
-    const access_token = await this.generateAccessToken(existingUser.id, email);
+    const name =
+      existingUser.first_name +
+      (existingUser.last_name != null ? ' ' + existingUser.last_name : '');
+    const access_token = await this.generateAccessToken(
+      existingUser.id,
+      email,
+      name,
+    );
     const refresh_token = await this.generateRefreshToken(existingUser.id);
     return {
       success: true,
@@ -89,7 +101,6 @@ export class AppService {
       .insertInto('auth.accounts')
       .values({
         user_id: newUser.id,
-        provider: 'email',
         hash_password: hashPassword,
       })
       .execute();
@@ -126,10 +137,45 @@ export class AppService {
     return { otp_expires_at };
   }
 
-  async validateOtp({ otp, purpose, email }: verifyOtpType) {
+  async resendOtp({ email, purpose }: resendOtpType) {
     const existingUser = await this.db
       .selectFrom('auth.users')
       .select(['id', 'email_verified'])
+      .where('email', '=', email)
+      .executeTakeFirst();
+
+    if (!existingUser) {
+      throwRpcError('User Does not exist', HttpStatus.NOT_FOUND);
+    }
+    if (existingUser.email_verified && purpose == 'signup') {
+      throwRpcError('Email already verified', HttpStatus.CONFLICT);
+    }
+
+    const otpSendingTime = await this.db
+      .selectFrom('auth.userotps')
+      .select(['expires_at', 'updated_at'])
+      .where('user_id', '=', existingUser.id)
+      .executeTakeFirst();
+
+    if (otpSendingTime) {
+      const otpSentAt = new Date(otpSendingTime.updated_at).getTime();
+
+      const diff = Date.now() - otpSentAt;
+
+      console.log(diff, 5 * 60 * 1000);
+      if (diff < 5 * 60 * 1000) {
+        throwRpcError(
+          'Please wait before trying another OTP',
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+    }
+    return this.generateOtp(email, existingUser.id);
+  }
+  async validateOtp({ otp, purpose, email }: verifyOtpType) {
+    const existingUser = await this.db
+      .selectFrom('auth.users')
+      .select(['id', 'email_verified', 'first_name', 'last_name'])
       .where('email', '=', email)
       .executeTakeFirst();
 
@@ -154,6 +200,9 @@ export class AppService {
       throwRpcError('otp Expired', HttpStatus.UNAUTHORIZED);
 
     const match = await bcrypt.compare(otp, otpData.otp);
+    const name =
+      existingUser.first_name +
+      (existingUser.last_name != null ? ' ' + existingUser.last_name : '');
     if (match) {
       await this.db
         .updateTable('auth.users')
@@ -164,6 +213,7 @@ export class AppService {
       const access_token = await this.generateAccessToken(
         existingUser.id,
         email,
+        name,
       );
       const refresh_token = await this.generateRefreshToken(existingUser.id);
       return {
@@ -210,8 +260,8 @@ export class AppService {
 
     return refresh_token;
   }
-  private async generateAccessToken(id: string, email: string) {
-    const payload = { sub: id, email: email };
+  private async generateAccessToken(id: string, email: string, name: string) {
+    const payload = { id: id, email: email, name };
     return await this.jwtService.signAsync(payload);
   }
 
@@ -237,7 +287,7 @@ export class AppService {
 
     const user = await this.db
       .selectFrom('auth.users')
-      .select('email')
+      .select(['email', 'first_name', 'last_name'])
       .where('id', '=', sessionData.user_id)
       .executeTakeFirst();
 
@@ -245,12 +295,227 @@ export class AppService {
       throwRpcError('User Does not exist', HttpStatus.NOT_FOUND);
     }
 
+    const name =
+      user.first_name + (user.last_name != null ? ' ' + user.last_name : '');
     const access_token = await this.generateAccessToken(
       sessionData.user_id,
       user.email,
+      name,
     );
     return {
-      refresh_token: access_token,
+      access_token: access_token,
     };
+  }
+
+  async verifyGoogleToken(
+    token: string,
+  ): Promise<import('google-auth-library').TokenPayload> {
+    try {
+      const ticket = await this.googleClient.verifyIdToken({
+        idToken: token,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+
+      const payload = ticket.getPayload();
+      console.log(payload);
+
+      if (!payload) {
+        throwRpcError('Invalid Google Token', HttpStatus.UNAUTHORIZED);
+      }
+      return payload; // Contains: email, name, picture, sub (Google ID)
+    } catch (error) {
+      console.log(error);
+      throwRpcError('Google authentication failed', HttpStatus.UNAUTHORIZED);
+    }
+  }
+
+  async googleLogin(token: string) {
+    const googleUser = await this.verifyGoogleToken(token);
+    console.log(' google user ', token);
+    const existingUser = await this.db
+      .selectFrom('auth.users')
+      .select(['id', 'email_verified', 'first_name', 'last_name'])
+      .where('email', '=', googleUser.email ?? '')
+      .executeTakeFirst();
+    console.log(existingUser);
+
+    if (existingUser) {
+      const data = await this.db
+        .selectFrom('auth.accounts')
+        .select('google_provider_id')
+        .where('user_id', '=', existingUser.id)
+        .executeTakeFirst();
+
+      console.log(data);
+
+      if (data && data.google_provider_id) {
+        if (googleUser.sub !== data.google_provider_id) {
+          throwRpcError('User Not found', HttpStatus.UNAUTHORIZED);
+        }
+      } else {
+        await this.db
+          .insertInto('auth.accounts')
+          .values({
+            user_id: existingUser.id,
+            google_provider_id: googleUser.sub,
+          })
+          .execute();
+      }
+      const name =
+        existingUser.first_name +
+        (existingUser.last_name !== null ? ' ' + existingUser.last_name : '');
+      const refresh_token = await this.generateRefreshToken(existingUser.id);
+      const access_token = await this.generateAccessToken(
+        existingUser.id,
+        googleUser.email ?? '',
+        name,
+      );
+      return {
+        success: true,
+        access_token: access_token,
+        refresh_token: refresh_token,
+      };
+    } else {
+      const { name, sub, email } = googleUser;
+      console.log(googleUser);
+      if (!email || !sub) {
+        throwRpcError('User not found', HttpStatus.UNAUTHORIZED);
+      }
+      const first_name = name?.split(' ')[0] ?? 'Anonymous';
+      const last_name = name?.split(' ')[1] ?? '';
+      const fullName = first_name + (last_name ? ' ' + last_name : '');
+
+      const { userId } = await this.db.transaction().execute(async (trx) => {
+        const user = await trx
+          .insertInto('auth.users')
+          .values({
+            email,
+            email_verified: true,
+            first_name,
+            last_name,
+          })
+          .returning('auth.users.id')
+          .executeTakeFirstOrThrow();
+
+        await trx
+          .insertInto('auth.accounts')
+          .values({
+            user_id: user.id,
+            google_provider_id: sub,
+          })
+          .execute();
+
+        return { userId: user.id };
+      });
+
+      const refresh_token = await this.generateRefreshToken(userId);
+      const access_token = await this.generateAccessToken(
+        userId,
+        email,
+        fullName,
+      );
+      return {
+        success: true,
+        access_token,
+        refresh_token,
+      };
+    }
+  }
+
+  private async verifyGithubToken(token: string) {
+    const [userRes, emailRes] = await Promise.all([
+      fetch('https://api.github.com/user', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'User-Agent': 'CompCoding',
+        },
+      }),
+      fetch('https://api.github.com/user/emails', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'User-Agent': 'CompCoding',
+        },
+      }),
+    ]);
+    if (!userRes.ok || !emailRes.ok) {
+      throwRpcError('GitHub authentication failed', HttpStatus.UNAUTHORIZED);
+    }
+
+    const user = await userRes.json();
+    const emails: { email: string; primary: boolean; verified: boolean }[] =
+      await emailRes.json();
+    const primaryEmail = emails.find((e) => e.primary && e.verified)?.email;
+    if (!primaryEmail) {
+      throwRpcError(
+        'No verified primary email on GitHub account',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    return { id: user.id, email: primaryEmail, name: user.name ?? user.login };
+  }
+
+  async githubLogin(githubAccessToken: string) {
+    const githubUser = await this.verifyGithubToken(githubAccessToken);
+    const existingUser = await this.db
+      .selectFrom('auth.users')
+      .select(['id', 'first_name', 'last_name'])
+      .where('email', '=', githubUser.email)
+      .executeTakeFirst();
+    if (existingUser) {
+      const account = await this.db
+        .selectFrom('auth.accounts')
+        .select('github_provider_id')
+        .where('user_id', '=', existingUser.id)
+        .executeTakeFirst();
+      if (account?.github_provider_id) {
+        if (account.github_provider_id !== String(githubUser.id)) {
+          throwRpcError('Account conflict', HttpStatus.UNAUTHORIZED);
+        }
+      } else {
+        // Link GitHub to existing account
+        await this.db
+          .updateTable('auth.accounts')
+          .set({ github_provider_id: String(githubUser.id) })
+          .where('user_id', '=', existingUser.id)
+          .execute();
+      }
+      const name =
+        existingUser.first_name +
+        (existingUser.last_name !== null ? ' ' + existingUser.last_name : '');
+      const refresh_token = await this.generateRefreshToken(existingUser.id);
+      const access_token = await this.generateAccessToken(
+        existingUser.id,
+        githubUser.email,
+        name,
+      );
+      return { success: true, access_token, refresh_token };
+    }
+    // New user — transaction
+    const [first_name, last_name = ''] = githubUser.name.split(' ');
+    const fullName = first_name + (last_name ? ' ' + last_name : '');
+    const { userId } = await this.db.transaction().execute(async (trx) => {
+      const user = await trx
+        .insertInto('auth.users')
+        .values({
+          email: githubUser.email,
+          email_verified: true,
+          first_name,
+          last_name,
+        })
+        .returning('auth.users.id')
+        .executeTakeFirstOrThrow();
+      await trx
+        .insertInto('auth.accounts')
+        .values({ user_id: user.id, github_provider_id: String(githubUser.id) })
+        .execute();
+      return { userId: user.id };
+    });
+    const refresh_token = await this.generateRefreshToken(userId);
+    const access_token = await this.generateAccessToken(
+      userId,
+      githubUser.email,
+      fullName,
+    );
+    return { success: true, access_token, refresh_token };
   }
 }
