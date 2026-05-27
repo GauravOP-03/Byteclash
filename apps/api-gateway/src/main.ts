@@ -9,6 +9,12 @@ async function bootstrap() {
   app.use(cookieParser());
 
   app.useGlobalFilters(new AllExceptionsFilter());
+  app.enableCors({
+    origin: 'http://localhost:3000',
+    methods: '*',
+    credentials: true,
+  });
+  // app.enableCors();
   await app.listen(process.env.PORT ?? 3001);
   Logger.log('Gateway is running at 3001');
 }
