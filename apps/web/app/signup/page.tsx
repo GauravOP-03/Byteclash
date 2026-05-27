@@ -1,10 +1,13 @@
 "use client";
 import { Label } from "@repo/ui/label";
 import Link from "next/link";
-import { FaGithub, FaGoogle } from "react-icons/fa";
 import { signupBody, signupBodyType } from "@repo/validation-types";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { authApi } from "@repo/api/src/client";
+import { useRouter } from "next/navigation";
+import GoogleLoginButton from "../../component/GoogleButton";
+import GithubLoginButton from "../../component/GithubButton";
 
 export default function Home() {
   const {
@@ -16,8 +19,21 @@ export default function Home() {
     mode: "onChange",
   });
 
-  const onValidSubmit = (data: signupBodyType) => {
-    console.log("Success", data);
+  const router = useRouter();
+  const onValidSubmit = async (data: signupBodyType) => {
+    try {
+      const { email, password, confirmPassword } = data;
+      const response = await authApi.post("/auth/signup", {
+        email,
+        password,
+        confirmPassword,
+      });
+
+      console.log(response);
+      router.push(`/otp-verify?email=${email}&purpose=signup`);
+    } catch (e) {
+      console.log(e);
+    }
   };
 
   return (
@@ -110,15 +126,8 @@ export default function Home() {
             <div className="h-[0.5px] flex-1 bg-border-default/50"></div>
           </div>
           <div className="flex items-center justify-center gap-3">
-            <button className="opacity-40 hover:opacity-100 transition ease-in">
-              <FaGoogle size={18} />
-            </button>
-            <button>
-              <FaGithub
-                size={18}
-                className={"opacity-40 hover:opacity-100 transition ease-in"}
-              />
-            </button>
+            <GoogleLoginButton />
+            <GithubLoginButton />
           </div>
         </div>
         <div className="mt-lg flex justify-center items-center gap-xs font-section-tag text-section-tag text-text-muted uppercase">

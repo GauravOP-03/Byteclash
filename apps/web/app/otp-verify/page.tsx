@@ -1,6 +1,9 @@
 "use client";
-import { MdOutlineLockPerson, MdOutlineTimer } from "react-icons/md";
+import { MdOutlineLockPerson } from "react-icons/md";
 import React, { useRef, useState } from "react";
+import { authApi } from "@repo/api/src/client";
+import { useRouter, useSearchParams } from "next/navigation";
+import TimerButton from "../../component/Timer";
 
 export default function OtpVerify() {
   const length = 6;
@@ -13,7 +16,6 @@ export default function OtpVerify() {
     const newOtp = [...otp];
     newOtp[index] = digit;
     setOtp(newOtp);
-
     if (digit && index < length - 1) {
       inputRef.current[index + 1]?.focus();
     }
@@ -46,6 +48,42 @@ export default function OtpVerify() {
 
     const focusIndex = Math.min(pasteData.length, length - 1);
     inputRef.current[focusIndex]?.focus();
+  };
+  const searchParam = useSearchParams();
+  const email = searchParam.get("email");
+  const purpose = searchParam.get("purpose");
+
+  const resendCode = async () => {
+    console.log(otp);
+    try {
+      const response = await authApi.post("auth/resend-otp", {
+        email,
+        purpose,
+      });
+      console.log(response);
+      setReset((d) => d + 1);
+    } catch (e) {
+      console.error(e.response.data);
+    }
+  };
+
+  const [reset, setReset] = useState(0);
+
+  const router = useRouter();
+  const handleSubmit = async () => {
+    try {
+      console.log(otp.join(""));
+      const otpString = otp.join("");
+      const response = await authApi.post("/auth/verify-otp", {
+        otp: otpString,
+        email,
+        purpose,
+      });
+      console.log(response);
+      router.push("/dashboard");
+    } catch (e) {
+      console.log(e.response.data);
+    }
   };
 
   return (
@@ -93,24 +131,21 @@ export default function OtpVerify() {
                 />
               ))}
             </div>
-            <div className="flex flex-col items-center gap-base">
-              <span className="font-section-tag text-section-tag text-text-muted uppercase">
-                CODE EXPIRES IN
+            <div className="flex flex-col items-center pt-sm">
+              <span className="font-section-tag text-body uppercase text-verdict-tle tracking-widest">
+                CODE WILL EXPIRE IN 10 MINUTES
               </span>
-              <div className="font-timer text-timer text-verdict-tle flex items-center gap-xs">
-                <MdOutlineTimer size={24} />
-                04:59
-              </div>
             </div>
           </div>
 
           <div className="flex flex-col gap-md pt-xs border-t-[0.5px] border-border-subtle mt-xs">
-            <button className="w-full h-[48px] bg-primary text-bg-void font-ui-label text-ui-label uppercase flex items-center justify-center hover:bg-primary-fixed transition-colors active:scale-[0.98] duration-75">
+            <button
+              onClick={handleSubmit}
+              className="w-full h-[48px] bg-primary text-bg-void font-ui-label text-ui-label uppercase flex items-center justify-center hover:bg-primary-fixed transition-colors active:scale-[0.98] duration-75"
+            >
               AUTHENTICATE
             </button>
-            <button className="w-full h-[40px] bg-transparent border-[0.5px] border-border-default text-text-muted font-ui-label text-ui-label uppercase flex items-center justify-center cursor-not-allowed opacity-50 hover:bg-bg-elevated/50 transition-colors">
-              RESEND CODE
-            </button>
+            <TimerButton resendCode={resendCode} resetTrigger={reset} />
           </div>
         </div>
       </main>

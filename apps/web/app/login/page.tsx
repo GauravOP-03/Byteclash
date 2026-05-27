@@ -1,10 +1,13 @@
 "use client";
 import { Label } from "@repo/ui/label";
 import Link from "next/link";
-import { FaGithub, FaGoogle } from "react-icons/fa";
+import GithubLoginButton from "../../component/GithubButton";
 import { useForm } from "react-hook-form";
 import { loginSchema, loginSchemaType } from "@repo/validation-types";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { authApi, setToken } from "@repo/api/src/client";
+import { redirect, useRouter } from "next/navigation";
+import GoogleLoginButton from "../../component/GoogleButton";
 
 export default function Home() {
   const {
@@ -16,8 +19,22 @@ export default function Home() {
     mode: "onChange",
   });
 
-  const onValidSubmit = (data: loginSchemaType) => {
-    console.log("Success", data);
+  const router = useRouter();
+
+  const onValidSubmit = async (data: loginSchemaType) => {
+    try {
+      const { email, password } = data;
+      const response = await authApi.post("/auth/login", { email, password });
+      console.log(response.data.access_token);
+      setToken(response.data.access_token);
+      router.push("/dashboard");
+    } catch (e: any) {
+      if (e.response.data.statusCode == 403) {
+        console.log(e.response.data);
+        redirect(`/otp-verify?email=${data.email}&purpose=signup`);
+      }
+      console.error(e.response.data);
+    }
   };
 
   return (
@@ -110,15 +127,8 @@ export default function Home() {
             <div className="h-[0.5px] flex-1 bg-border-default/50"></div>
           </div>
           <div className="flex items-center justify-center gap-3">
-            <button className="opacity-40 hover:opacity-100 transition ease-in">
-              <FaGoogle size={18} />
-            </button>
-            <button>
-              <FaGithub
-                size={18}
-                className={"opacity-40 hover:opacity-100 transition ease-in"}
-              />
-            </button>
+            <GoogleLoginButton />
+            <GithubLoginButton />
           </div>
         </div>
         <div className="mt-lg flex justify-center items-center gap-xs font-section-tag text-section-tag text-text-muted uppercase">
