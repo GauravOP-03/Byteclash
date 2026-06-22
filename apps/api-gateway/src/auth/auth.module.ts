@@ -10,7 +10,7 @@ import { AuthController } from './auth.controller';
         transport: Transport.TCP,
         options: {
           host: 'localhost',
-          port: 8877,
+          port: 4001,
         },
       },
     ]),

@@ -2,8 +2,6 @@ import {
   Body,
   Controller,
   Get,
-  HttpException,
-  HttpStatus,
   Inject,
   Post,
   Query,
@@ -15,13 +13,8 @@ import { ClientProxy } from '@nestjs/microservices';
 import { catchError, firstValueFrom, throwError } from 'rxjs';
 import * as validationTypes from '@repo/validation-types';
 import express from 'express';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
-
-interface RpcErrorPayload {
-  statusCode?: number;
-  message?: string;
-  errors?: unknown[];
-}
+import { JwtAuthGuard } from 'src/guards/jwt-auth.guard';
+import handleRpcError from 'src/common/utils/handle-rpc-error';
 interface UserResponse {
   id: string;
   email: string;
@@ -32,21 +25,6 @@ export class AuthController {
   constructor(
     @Inject('AUTH_SERVICE') private readonly authClient: ClientProxy,
   ) {}
-
-  private handleRpcError(err: RpcErrorPayload): never {
-    const statusCode = err?.statusCode ?? HttpStatus.INTERNAL_SERVER_ERROR;
-    const message = err?.message ?? 'Something went wrong';
-    const errors = err?.errors;
-
-    throw new HttpException(
-      {
-        statusCode,
-        message,
-        ...(errors && { errors }),
-      },
-      statusCode,
-    );
-  }
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
@@ -72,7 +50,7 @@ export class AuthController {
     } = await firstValueFrom(
       this.authClient
         .send('auth-login', body)
-        .pipe(catchError((err) => throwError(() => this.handleRpcError(err)))),
+        .pipe(catchError((err) => throwError(() => handleRpcError(err)))),
     );
 
     response.cookie('refresh_token', data.refresh_token, {
@@ -93,7 +71,7 @@ export class AuthController {
     const data: { otp: string; otp_expires_at: string } = await firstValueFrom(
       this.authClient
         .send('auth-signup', signupData)
-        .pipe(catchError((err) => throwError(() => this.handleRpcError(err)))),
+        .pipe(catchError((err) => throwError(() => handleRpcError(err)))),
     );
 
     return data;
@@ -111,7 +89,7 @@ export class AuthController {
     } = await firstValueFrom(
       this.authClient
         .send('auth-validate-otp', verifyData)
-        .pipe(catchError((err) => throwError(() => this.handleRpcError(err)))),
+        .pipe(catchError((err) => throwError(() => handleRpcError(err)))),
     );
 
     response.cookie('refresh_token', data.refresh_token, {
@@ -131,7 +109,7 @@ export class AuthController {
     const data: { otp_expires_at: string } = await firstValueFrom(
       this.authClient
         .send('auth-resend-otp', resendData)
-        .pipe(catchError((err) => throwError(() => this.handleRpcError(err)))),
+        .pipe(catchError((err) => throwError(() => handleRpcError(err)))),
     );
 
     console.log(data);
@@ -145,7 +123,7 @@ export class AuthController {
     const data: { access_token: string } = await firstValueFrom(
       this.authClient
         .send('auth-refresh-token', token)
-        .pipe(catchError((err) => throwError(() => this.handleRpcError(err)))),
+        .pipe(catchError((err) => throwError(() => handleRpcError(err)))),
     );
 
     return data;
@@ -170,7 +148,7 @@ export class AuthController {
     } = await firstValueFrom(
       this.authClient
         .send('auth-google-login', token)
-        .pipe(catchError((err) => throwError(() => this.handleRpcError(err)))),
+        .pipe(catchError((err) => throwError(() => handleRpcError(err)))),
     );
 
     response.cookie('refresh_token', data.refresh_token, {
@@ -219,9 +197,7 @@ export class AuthController {
       await firstValueFrom(
         this.authClient
           .send('auth-github-login', githubToken)
-          .pipe(
-            catchError((err) => throwError(() => this.handleRpcError(err))),
-          ),
+          .pipe(catchError((err) => throwError(() => handleRpcError(err)))),
       );
     response.cookie('refresh_token', data.refresh_token, {
       httpOnly: true,
