@@ -11,7 +11,7 @@ async function bootstrap() {
       transport: Transport.TCP,
       options: {
         host: 'localhost',
-        port: 8877,
+        port: 4001,
       },
     },
   );
@@ -19,6 +19,6 @@ async function bootstrap() {
   app.useGlobalPipes(new ZodRpcValidationPipe());
 
   await app.listen();
-  Logger.log('Auth Service is Listening on port 8877');
+  Logger.log('Auth Service is Listening on port 4001');
 }
 bootstrap();
